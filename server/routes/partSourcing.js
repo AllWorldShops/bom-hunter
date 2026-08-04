@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '../middleware/auth.js'
 import { searchParts } from '../services/partSourcing.js'
 import { chatAboutPart } from '../services/partChat.js'
+import { countOffers, normalizeKey, getCached, saveCache, logSearch, getStats } from '../services/searchAnalytics.js'
 
 const router = Router()
 router.use(requireAuth)
@@ -12,22 +13,42 @@ const querySchema = z.object({
   exact: z.enum(['true', 'false']).optional(),
   inStock: z.enum(['true', 'false']).optional(),
   currency: z.string().length(3).optional(),
+  refresh: z.enum(['true', 'false']).optional(), // force a live re-fetch, bypassing cache
 })
 
-// GET /api/part-sourcing/search?q=193643-1&exact=false&inStock=false&currency=USD
+// GET /api/part-sourcing/search?q=193643-1[&refresh=true]
+// Serves a cached result if we have one (unless refresh=true); otherwise fetches live
+// and caches it. Every search is logged for the analytics dashboard.
 router.get('/search', async (req, res, next) => {
   try {
-    const { q, exact, inStock, currency } = querySchema.parse(req.query)
-    const result = await searchParts(q, {
-      exactMatch: exact === 'true',
-      inStockOnly: inStock === 'true',
-      currency,
-    })
-    res.json(result)
+    const { q, exact, inStock, currency, refresh } = querySchema.parse(req.query)
+    const key = normalizeKey(q)
+    const cached = refresh === 'true' ? null : await getCached(key)
+
+    let result
+    let cacheHit = false
+    if (cached) {
+      result = cached
+      cacheHit = true
+    } else {
+      result = await searchParts(q, { exactMatch: exact === 'true', inStockOnly: inStock === 'true', currency })
+      result.cachedAt = new Date()
+      await saveCache(key, q, result)
+    }
+
+    await logSearch({ userId: req.user.id, username: req.user.username, key, resultCount: countOffers(result), cacheHit })
+    res.json({ ...result, cacheHit })
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message })
     next(err)
   }
+})
+
+// GET /api/part-sourcing/search-stats — analytics for the Source Raw Materials dashboard
+router.get('/search-stats', async (req, res, next) => {
+  try {
+    res.json(await getStats())
+  } catch (err) { next(err) }
 })
 
 const chatSchema = z.object({

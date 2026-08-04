@@ -25,6 +25,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   conversionLogs ConversionLog[]
+  searchLogs     SearchLog[]
 }
 
 model Customer {
@@ -115,4 +116,31 @@ model RfqSync {
   pendingReview Int      @default(0)
   other         Int      @default(0)
   none          Int      @default(0)
+}
+
+// Cached TrustedParts result per part number (one row per unique part). Served on
+// repeat searches so we don't re-hit the API; refreshed on demand. See routes/partSourcing.js.
+model SearchCache {
+  id          String   @id @default(cuid())
+  partNumber  String   @unique // normalized cache key (trimmed + uppercased)
+  query       String            // the raw query as first searched
+  result      String            // JSON of the normalized search response { query, parts }
+  resultCount Int      @default(0) // total distributor offers shown, for metrics
+  refreshedAt DateTime @default(now()) // last time this was fetched live
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// One row per search event (for the Source Raw Materials analytics dashboard).
+// username is denormalized so history survives user deletion.
+model SearchLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  username    String
+  partNumber  String
+  resultCount Int      @default(0)
+  cacheHit    Boolean  @default(false) // served from cache vs fetched live
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 }

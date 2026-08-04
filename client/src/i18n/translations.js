@@ -59,6 +59,7 @@ export const translations = {
       datasheet: 'Datasheet', priceRange: 'Price range', offers: '{n} distributor offers',
       offer: '{n} distributor offer', lifecycle: 'Lifecycle: {v}', tariff: 'Tariff-affected',
       by: 'by', qty: 'Qty',
+      cachedOn: 'Cached · updated {date}', refresh: 'Refresh', refreshing: 'Refreshing…', live: 'Live result',
       tabOverview: 'Overview', tabSpecs: 'Specifications', tabDistributors: 'Distributors', tabAskAi: 'Ask AI',
       bestPrice: 'Best price', lowestUnit: 'lowest unit price', distributors: 'Distributors',
       withStock: '{n} with stock', rohs: 'RoHS', compliant: 'Compliant', notReported: 'not reported',
@@ -78,8 +79,11 @@ export const translations = {
       viewListing: 'View listing',
     },
     srmDash: {
-      title: 'Source Raw Materials Dashboard',
-      body: "Requirements are still being defined. This page will be built out once they're ready.",
+      searchesToday: 'Searches Today', usersToday: 'Active Users Today', totalSearches: 'Total Searches',
+      uniqueParts: 'Unique Parts', resultsShown: 'Results Shown', cachedParts: 'Parts Cached',
+      cacheLive: 'Cache / Live', recentSearches: 'Recent Searches',
+      colPart: 'Part Number', colUser: 'User', colTime: 'Date / Time', colResults: 'Results', colSource: 'Source',
+      cached: 'Cached', live: 'Live', noSearches: 'No searches yet — use Search to look up a part.',
     },
     convert: {
       status0: 'Uploading file...', status1: 'Analysing BOM structure...', status2: 'Mapping columns...', status3: 'Generating export files...',
@@ -157,6 +161,7 @@ export const translations = {
       datasheet: '数据手册', priceRange: '价格区间', offers: '{n} 个经销商报价',
       offer: '{n} 个经销商报价', lifecycle: '生命周期：{v}', tariff: '受关税影响',
       by: '来自', qty: '数量',
+      cachedOn: '缓存 · 更新于 {date}', refresh: '刷新', refreshing: '刷新中…', live: '实时结果',
       tabOverview: '概览', tabSpecs: '规格参数', tabDistributors: '经销商', tabAskAi: 'AI 问答',
       bestPrice: '最优价格', lowestUnit: '最低单价', distributors: '经销商',
       withStock: '{n} 家有货', rohs: 'RoHS', compliant: '合规', notReported: '未提供',
@@ -176,8 +181,11 @@ export const translations = {
       viewListing: '查看商品',
     },
     srmDash: {
-      title: '原材料采购仪表盘',
-      body: '需求仍在确定中。功能将在需求明确后逐步完善。',
+      searchesToday: '今日搜索', usersToday: '今日活跃用户', totalSearches: '搜索总数',
+      uniqueParts: '唯一零件数', resultsShown: '显示结果数', cachedParts: '已缓存零件',
+      cacheLive: '缓存 / 实时', recentSearches: '最近搜索',
+      colPart: '零件号', colUser: '用户', colTime: '日期 / 时间', colResults: '结果数', colSource: '来源',
+      cached: '缓存', live: '实时', noSearches: '暂无搜索记录 — 使用“搜索”查询零件。',
     },
     convert: {
       status0: '正在上传文件...', status1: '正在分析 BOM 结构...', status2: '正在映射列...', status3: '正在生成导出文件...',

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { useLang } from '@/i18n/LanguageContext'
 import {
   Search as SearchIcon, ExternalLink, FileText, Loader2, AlertCircle,
-  PackageSearch, ShieldCheck, Cpu, ListTree, Store, MessageSquare, Info, Send, SearchX,
+  PackageSearch, ShieldCheck, Cpu, ListTree, Store, MessageSquare, Info, Send, SearchX, RefreshCw,
 } from 'lucide-react'
 
 // The default prompt auto-sent when the Ask AI tab is first opened for a part.
@@ -33,25 +33,35 @@ export default function SourceRawMaterialsSearch() {
   const [tab, setTab] = useState('overview') // overview | specs | distributors | chat
   const [chat, setChat] = useState({ messages: [], loading: false, error: '' })
   const chatStartedRef = useRef(false)
+  const [refreshing, setRefreshing] = useState(false)
   const { t } = useLang()
 
-  async function handleSearch(e) {
+  async function handleSearch(e, { refresh = false } = {}) {
     e?.preventDefault()
     const q = term.trim()
     if (q.length < 2) return
-    setPhase('loading')
-    setError('')
-    setResult(null)
-    setTab('overview')
-    setChat({ messages: [], loading: false, error: '' })
-    chatStartedRef.current = false
+    if (refresh) {
+      setRefreshing(true)
+    } else {
+      setPhase('loading')
+      setError('')
+      setResult(null)
+      setTab('overview')
+      setChat({ messages: [], loading: false, error: '' })
+      chatStartedRef.current = false
+    }
     try {
-      const { data } = await api.get('/part-sourcing/search', { params: { q } })
+      const { data } = await api.get('/part-sourcing/search', { params: { q, ...(refresh ? { refresh: 'true' } : {}) } })
       setResult(data)
       setPhase('done')
     } catch (err) {
-      setError(err.response?.data?.error || t('sourcing.searchFailed'))
-      setPhase('error')
+      // On refresh, keep the existing cached results rather than blanking the page.
+      if (!refresh) {
+        setError(err.response?.data?.error || t('sourcing.searchFailed'))
+        setPhase('error')
+      }
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -135,7 +145,8 @@ export default function SourceRawMaterialsSearch() {
 
       {phase === 'done' && part && (
         <>
-          <PartHeader part={part} />
+          <PartHeader part={part} cacheHit={result.cacheHit} cachedAt={result.cachedAt}
+            onRefresh={() => handleSearch(null, { refresh: true })} refreshing={refreshing} />
 
           {/* Tabs */}
           <div>
@@ -178,8 +189,9 @@ function TabButton({ active, onClick, icon: Icon, label, count }) {
   )
 }
 
-function PartHeader({ part }) {
-  const { t } = useLang()
+function PartHeader({ part, cacheHit, cachedAt, onRefresh, refreshing }) {
+  const { t, lang } = useLang()
+  const locale = lang === 'zh' ? 'zh-CN' : 'en-SG'
   return (
     <div className="bg-navy-800 border border-navy-600 rounded-xl p-6 flex flex-wrap items-start gap-6">
       <div className="w-20 h-20 rounded-lg bg-navy-900 border border-navy-600 flex items-center justify-center shrink-0 overflow-hidden">
@@ -210,6 +222,20 @@ function PartHeader({ part }) {
           {part.lifecycleRisk && <span className="text-xs text-slate-500">{t('sourcing.lifecycle', { v: part.lifecycleRisk })}</span>}
           {part.isAffectedByTariff && <span className="text-xs text-amber-400">{t('sourcing.tariff')}</span>}
         </div>
+        {cachedAt && (
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-slate-500">
+              {cacheHit ? t('sourcing.cachedOn', { date: new Date(cachedAt).toLocaleString(locale) }) : t('sourcing.live')}
+            </span>
+            {onRefresh && (
+              <button onClick={onRefresh} disabled={refreshing}
+                className="inline-flex items-center gap-1 text-xs text-electric-300 hover:text-electric-400 disabled:opacity-50">
+                <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+                {refreshing ? t('sourcing.refreshing') : t('sourcing.refresh')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {part.priceRange && (
