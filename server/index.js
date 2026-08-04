@@ -49,12 +49,23 @@ app.use('/api/part-sourcing', partSourcingRouter)
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
 
-// In production, serve the built React app for all non-API routes
+// In production, serve the built React app for all non-API routes.
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../client/dist')
-  app.use(express.static(clientDist))
+  // Content-hashed assets (index-<hash>.js/css) can be cached forever — the hash
+  // changes whenever the content does.
+  app.use('/assets', express.static(path.join(clientDist, 'assets'), { immutable: true, maxAge: '1y' }))
+  // Everything else, incl. index.html. index.html must NOT be long-cached, or a
+  // browser holding an old copy will request bundle hashes that a later deploy
+  // deleted → blank screen. no-cache = always revalidate (304 when unchanged).
+  app.use(express.static(clientDist, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache')
+    },
+  }))
   // Regex excludes /api/* so Express still returns 404 for unknown API routes
   app.get(/^(?!\/api\/).*/, (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache')
     res.sendFile(path.join(clientDist, 'index.html'))
   })
 }
