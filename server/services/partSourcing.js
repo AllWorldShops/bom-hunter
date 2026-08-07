@@ -92,7 +92,9 @@ export async function searchParts(searchToken, opts = {}) {
   const body = {
     CompanyId: companyId,
     ApiKey: apiKey,
-    Queries: [{ SearchToken: searchToken }],
+    // Manufacturers narrows a partial-match search to one maker's catalogue (used by
+    // the Similar Products lookup); omitted entirely for a normal search.
+    Queries: [{ SearchToken: searchToken, ...(opts.manufacturers?.length ? { Manufacturers: opts.manufacturers } : {}) }],
     CurrencyCode: opts.currency || 'USD',
     ExactMatch: !!opts.exactMatch,
     InStockOnly: !!opts.inStockOnly,

@@ -5,6 +5,7 @@ import { useLang } from '@/i18n/LanguageContext'
 import {
   Search as SearchIcon, ExternalLink, FileText, Loader2, AlertCircle,
   PackageSearch, ShieldCheck, Cpu, ListTree, Store, MessageSquare, Info, Send, SearchX, RefreshCw,
+  Copy, Shuffle, CheckCircle2, AlertTriangle,
 } from 'lucide-react'
 
 // The default prompt auto-sent when the Ask AI tab is first opened for a part.
@@ -34,12 +35,15 @@ export default function SourceRawMaterialsSearch() {
   const [chat, setChat] = useState({ messages: [], loading: false, error: '' })
   const chatStartedRef = useRef(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [similar, setSimilar] = useState({ data: null, loading: false, error: '' })
+  const [alts, setAlts] = useState({ data: null, loading: false, error: '' })
   const { t } = useLang()
 
-  async function handleSearch(e, { refresh = false } = {}) {
+  async function handleSearch(e, { refresh = false, query } = {}) {
     e?.preventDefault()
-    const q = term.trim()
+    const q = (query ?? term).trim()
     if (q.length < 2) return
+    if (query) setTerm(q)
     if (refresh) {
       setRefreshing(true)
     } else {
@@ -49,6 +53,8 @@ export default function SourceRawMaterialsSearch() {
       setTab('overview')
       setChat({ messages: [], loading: false, error: '' })
       chatStartedRef.current = false
+      setSimilar({ data: null, loading: false, error: '' })
+      setAlts({ data: null, loading: false, error: '' })
     }
     try {
       const { data } = await api.get('/part-sourcing/search', { params: { q, ...(refresh ? { refresh: 'true' } : {}) } })
@@ -87,6 +93,30 @@ export default function SourceRawMaterialsSearch() {
       }))
     } catch (err) {
       setChat(c => ({ ...c, loading: false, error: err.response?.data?.error || t('chat.chatFailed') }))
+    }
+  }
+
+  // Similar / Alternatives load lazily the first time their tab is opened, then cache
+  // server-side; `refresh` forces a fresh lookup.
+  function partContext() {
+    return {
+      partNumber: part.partNumber,
+      manufacturer: part.manufacturer,
+      description: part.description,
+      specifications: part.specifications,
+    }
+  }
+
+  async function loadRelated(kind, refresh = false) {
+    const [state, setState] = kind === 'similar' ? [similar, setSimilar] : [alts, setAlts]
+    if (state.loading || (state.data && !refresh)) return
+    setState(s => ({ ...s, loading: true, error: '' }))
+    try {
+      const { data } = await api.post(`/part-sourcing/${kind === 'similar' ? 'similar' : 'alternatives'}`,
+        { part: partContext(), refresh })
+      setState({ data, loading: false, error: '' })
+    } catch (err) {
+      setState(s => ({ ...s, loading: false, error: err.response?.data?.error || t('sourcing.searchFailed') }))
     }
   }
 
@@ -157,6 +187,10 @@ export default function SourceRawMaterialsSearch() {
                 label={t('sourcing.tabSpecs')} count={part.specifications.length} />
               <TabButton active={tab === 'distributors'} onClick={() => setTab('distributors')} icon={Store}
                 label={t('sourcing.tabDistributors')} count={part.offerCount} />
+              <TabButton active={tab === 'similar'} onClick={() => setTab('similar')} icon={Copy}
+                label={t('related.tabSimilar')} count={similar.data?.similar?.length} />
+              <TabButton active={tab === 'alternatives'} onClick={() => setTab('alternatives')} icon={Shuffle}
+                label={t('related.tabAlternatives')} count={alts.data?.alternatives?.length} />
               <TabButton active={tab === 'chat'} onClick={() => setTab('chat')} icon={MessageSquare}
                 label={t('sourcing.tabAskAi')} />
             </div>
@@ -165,6 +199,16 @@ export default function SourceRawMaterialsSearch() {
               {tab === 'overview' && <OverviewTab part={part} onViewDistributors={() => setTab('distributors')} />}
               {tab === 'specs' && <SpecsTab specifications={part.specifications} />}
               {tab === 'distributors' && <OffersTable offers={part.offers} qty={qty} setQty={setQty} />}
+              {tab === 'similar' && (
+                <RelatedTab kind="similar" part={part} state={similar}
+                  onMount={() => loadRelated('similar')} onRefresh={() => loadRelated('similar', true)}
+                  onSearchPart={pn => handleSearch(null, { query: pn })} />
+              )}
+              {tab === 'alternatives' && (
+                <RelatedTab kind="alternatives" part={part} state={alts}
+                  onMount={() => loadRelated('alternatives')} onRefresh={() => loadRelated('alternatives', true)}
+                  onSearchPart={pn => handleSearch(null, { query: pn })} />
+              )}
               {tab === 'chat' && <ChatTab part={part} chat={chat} onSend={sendChat} onMount={ensureChatStarted} />}
             </div>
           </div>
@@ -314,6 +358,149 @@ function SpecsTab({ specifications }) {
           </div>
         ))}
       </dl>
+    </div>
+  )
+}
+
+// Shared shell for the Similar and Alternatives tabs — same load/refresh/empty
+// behaviour, different data source and copy.
+function RelatedTab({ kind, part, state, onMount, onRefresh, onSearchPart }) {
+  const { t, lang } = useLang()
+  const locale = lang === 'zh' ? 'zh-CN' : 'en-SG'
+  const isSimilar = kind === 'similar'
+
+  useEffect(() => { onMount() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const items = (isSimilar ? state.data?.similar : state.data?.alternatives) || []
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <p className="text-sm text-slate-400 max-w-2xl">
+          {isSimilar
+            ? t('related.similarIntro', { mfr: part.manufacturer || '—' })
+            : t('related.altIntro')}
+        </p>
+        <div className="flex items-center gap-3 shrink-0">
+          {state.data?.cachedAt && state.data?.cacheHit && (
+            <span className="text-xs text-slate-500">
+              {t('related.cachedOn', { date: new Date(state.data.cachedAt).toLocaleString(locale) })}
+            </span>
+          )}
+          <button onClick={onRefresh} disabled={state.loading}
+            className="inline-flex items-center gap-1 text-xs text-electric-300 hover:text-electric-400 disabled:opacity-50">
+            <RefreshCw size={12} className={state.loading ? 'animate-spin' : ''} />
+            {state.loading ? t('related.refreshing') : t('related.refresh')}
+          </button>
+        </div>
+      </div>
+
+      {state.loading && !items.length && (
+        <div className="flex items-center gap-2 text-slate-400 text-sm py-10 justify-center">
+          <Loader2 size={16} className="animate-spin" /> {t('related.loading')}
+        </div>
+      )}
+
+      {state.error && (
+        <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl px-4 py-3 text-sm">
+          <AlertCircle size={16} /> {state.error}
+        </div>
+      )}
+
+      {!state.loading && !state.error && !items.length && (
+        <div className="bg-navy-800 border border-navy-600 rounded-xl p-8 text-center">
+          <SearchX size={32} className="mx-auto text-slate-600 mb-3" />
+          <p className="text-slate-400 text-sm max-w-md mx-auto">
+            {isSimilar ? t('related.similarNone') : t('related.altNone')}
+          </p>
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {items.map((item, i) => (
+              <RelatedCard key={i} item={item} isSimilar={isSimilar} onSearchPart={onSearchPart} />
+            ))}
+          </div>
+          {!isSimilar && (
+            <p className="text-xs text-slate-500 flex items-center gap-1.5">
+              <AlertTriangle size={12} className="shrink-0" /> {t('related.altDisclaimer')}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function RelatedCard({ item, isSimilar, onSearchPart }) {
+  const { t } = useLang()
+  return (
+    <div className="bg-navy-800 border border-navy-600 rounded-xl p-4 flex flex-col gap-2 hover:border-electric-500/50 transition-colors">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold text-slate-100 font-mono truncate">{item.partNumber}</p>
+          {item.manufacturer && <p className="text-xs text-slate-400 truncate">{item.manufacturer}</p>}
+        </div>
+        {/* Alternatives carry a verification badge; similars are API data by definition. */}
+        {!isSimilar && (
+          item.verified
+            ? <span className="shrink-0 inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
+                <CheckCircle2 size={11} /> {t('related.verified')}
+              </span>
+            : <span className="shrink-0 inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300" title={t('related.unverifiedHint')}>
+                <AlertTriangle size={11} /> {t('related.unverified')}
+              </span>
+        )}
+      </div>
+
+      {item.description && <p className="text-xs text-slate-400 line-clamp-2">{item.description}</p>}
+      {!isSimilar && item.reason && <p className="text-xs text-slate-300">{item.reason}</p>}
+
+      {isSimilar && item.matchedSpecs?.length > 0 && (
+        <p className="text-xs text-emerald-300">{t('related.matches', { n: item.matchedSpecs.length })}</p>
+      )}
+      {isSimilar && item.differences?.length > 0 && (
+        <p className="text-xs text-amber-400/90">
+          {t('related.differs')} {item.differences.map(d => `${d.key} ${d.value}`).join(' · ')}
+        </p>
+      )}
+
+      {(item.verified || isSimilar) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+          <span>{t('related.distributors', { n: item.distributorCount ?? 0 })}</span>
+          <span className={item.inStock > 0 ? 'text-emerald-400' : ''}>
+            {item.inStock > 0 ? t('related.inStock', { n: item.inStock.toLocaleString() }) : t('related.noStock')}
+          </span>
+          {item.priceRange && <span className="text-slate-200">{money(item.priceRange.min, item.priceRange.currency)}</span>}
+        </div>
+      )}
+
+      <div className="mt-auto flex flex-wrap items-center gap-3 pt-1">
+        <button onClick={() => onSearchPart(item.partNumber)}
+          className="inline-flex items-center gap-1 text-xs text-electric-300 hover:text-electric-400">
+          <SearchIcon size={12} /> {t('related.searchThis')}
+        </button>
+        {item.productUrl && (
+          <a href={item.productUrl} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200">
+            <ExternalLink size={12} /> {t('related.viewPart')}
+          </a>
+        )}
+        {item.datasheetUrl && (
+          <a href={item.datasheetUrl} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200">
+            <FileText size={12} /> {t('sourcing.datasheet')}
+          </a>
+        )}
+        {!isSimilar && item.sourceUrl && (
+          <a href={item.sourceUrl} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200">
+            <ExternalLink size={12} /> {t('related.source')}
+          </a>
+        )}
+      </div>
     </div>
   )
 }

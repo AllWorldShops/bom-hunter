@@ -144,3 +144,14 @@ model SearchLog {
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 }
+
+// Cached alternative/cross-reference suggestions per part (same policy as SearchCache:
+// cache forever, refresh on demand). See services/alternativeParts.js.
+model AlternativesCache {
+  id          String   @id @default(cuid())
+  partNumber  String   @unique // normalized key (trimmed + uppercased)
+  result      String   // JSON: { alternatives: [...], checkedAt }
+  refreshedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

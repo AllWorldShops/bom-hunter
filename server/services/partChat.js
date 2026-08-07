@@ -5,9 +5,7 @@
 // DeepSeek cannot browse the web, so we search first (Tavily) and inject the real
 // results as context; DeepSeek only summarizes/answers from what we give it.
 
-const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions'
-const DEEPSEEK_MODEL = 'deepseek-v4-flash'
-const TAVILY_URL = 'https://api.tavily.com/search'
+import { tavilySearch, deepseekChat } from '../lib/ai.js'
 
 // Mainstream distributors + aggregators/marketplaces the user does NOT want.
 // Matched by brand LABEL so regional storefronts (mouser.sg, digikey.com.sg, digikey.kr)
@@ -40,25 +38,13 @@ async function searchStockists(part) {
   // words like "price"/"stock": for a public company (TE→ticker TEL) they pull in
   // stock-market results. "advanced" depth surfaces the smaller independent stockists.
   const query = `${part.partNumber} ${part.manufacturer || ''}`.trim().slice(0, 200)
-  const res = await fetch(TAVILY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tavilyKey}` },
-    body: JSON.stringify({
-      query,
-      max_results: 20,
-      search_depth: 'advanced',
-      exclude_domains: EXCLUDED_DOMAINS,
-    }),
+  const { results: raw } = await tavilySearch(query, {
+    maxResults: 20,
+    searchDepth: 'advanced',
+    excludeDomains: EXCLUDED_DOMAINS,
   })
-  if (!res.ok) {
-    const err = new Error(`Tavily search returned HTTP ${res.status}`)
-    err.status = 502
-    throw err
-  }
-  const data = await res.json()
   // Safety net: drop anything blocked that slipped through.
-  const results = (data.results || []).filter(r => !hostBlocked(r.url))
-  return { results, configured: true }
+  return { results: raw.filter(r => !hostBlocked(r.url)), configured: true }
 }
 
 function buildSystemPrompt(part, search) {
@@ -103,42 +89,13 @@ ${resultsBlock}`
 }
 
 export async function chatAboutPart({ part, messages }) {
-  const deepseekKey = process.env.DEEPSEEK_API_KEY
-  if (!deepseekKey) {
-    const err = new Error('Ask AI is not configured. Set DEEPSEEK_API_KEY.')
-    err.status = 503
-    throw err
-  }
-
   const search = await searchStockists(part)
 
-  const payload = {
-    model: DEEPSEEK_MODEL,
-    temperature: 0.2,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: buildSystemPrompt(part, search) },
-      ...messages.map(m => ({ role: m.role, content: m.content })),
-    ],
-  }
-
-  const res = await fetch(DEEPSEEK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${deepseekKey}` },
-    body: JSON.stringify(payload),
+  const raw = await deepseekChat({
+    system: buildSystemPrompt(part, search),
+    messages: messages.map(m => ({ role: m.role, content: m.content })),
+    json: true,
   })
-  if (!res.ok) {
-    const err = new Error(`DeepSeek API returned HTTP ${res.status}`)
-    err.status = 502
-    throw err
-  }
-  const data = await res.json()
-  const raw = data.choices?.[0]?.message?.content?.trim()
-  if (!raw) {
-    const err = new Error('DeepSeek returned an empty response.')
-    err.status = 502
-    throw err
-  }
 
   // Enforce grounding in code: only keep stockist cards whose URL was actually in the
   // search results — a hallucinated link can't reach the UI even if the model slips.

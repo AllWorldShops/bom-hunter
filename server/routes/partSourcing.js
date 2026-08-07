@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '../middleware/auth.js'
 import { searchParts } from '../services/partSourcing.js'
 import { chatAboutPart } from '../services/partChat.js'
+import { findSimilarParts, findAlternatives } from '../services/alternativeParts.js'
 import { countOffers, normalizeKey, getCached, saveCache, logSearch, getStats } from '../services/searchAnalytics.js'
 
 const router = Router()
@@ -49,6 +50,36 @@ router.get('/search-stats', async (req, res, next) => {
   try {
     res.json(await getStats())
   } catch (err) { next(err) }
+})
+
+const partSchema = z.object({
+  partNumber: z.string().min(1),
+  manufacturer: z.string().nullish(),
+  description: z.string().nullish(),
+  specifications: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
+})
+const relatedSchema = z.object({ part: partSchema, refresh: z.boolean().optional() })
+
+// POST /api/part-sourcing/similar — same-family parts from TrustedParts, spec-matched
+router.post('/similar', async (req, res, next) => {
+  try {
+    const { part, refresh } = relatedSchema.parse(req.body)
+    res.json(await findSimilarParts(part, { refresh }))
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message })
+    next(err)
+  }
+})
+
+// POST /api/part-sourcing/alternatives — web cross-references, verified via TrustedParts
+router.post('/alternatives', async (req, res, next) => {
+  try {
+    const { part, refresh } = relatedSchema.parse(req.body)
+    res.json(await findAlternatives(part, { refresh }))
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message })
+    next(err)
+  }
 })
 
 const chatSchema = z.object({
